@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h> // Para usar strings
-#include <math.h>   // Para powf()
+#include <math.h>   // powf()
 #include <time.h>
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -40,11 +40,6 @@ typedef struct
     RGBFPixel *pixels;
 } ImgRGBF;
 
-//
-// Tipos de ponteiros de função usados no pipeline de processamento.
-// Conforme pedido no enunciado, exposição, tone mapping (Reinhard/ACES)
-// e correção gama são aplicados através de ponteiros de função.
-//
 typedef float (*FuncExposicao)(float valor, float stops);
 typedef float (*FuncToneMap)(float valor, float param);
 typedef float (*FuncGama)(float valor, float gama);
@@ -141,9 +136,7 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-// Executa todo o pipeline de processamento, grava saída em out->pixels
-//
-// Ordem do pipeline (conforme o enunciado):
+// Ordem do pipeline:
 //   1. Aplicar o fator de exposição
 //   2. Aplicar o algoritmo de tone mapping (Reinhard ou ACES)
 //   3. Aplicar a correção gama
@@ -155,7 +148,6 @@ void process(ImgRGBF *in, ImgRGB *out, float exposicao, float gama, FuncToneMap 
     out->width = in->width;
     out->height = in->height;
 
-    // Ponteiros de função para exposição e correção gama
     FuncExposicao funcExposicao = aplicaExposicao;
     FuncGama funcGama = aplicaGama;
 
@@ -213,7 +205,7 @@ void process(ImgRGBF *in, ImgRGB *out, float exposicao, float gama, FuncToneMap 
         in->pixels[i].b = funcGama(in->pixels[i].b, gama);
     }
 
-    // PASSO 4: converte o resultado (em [0,1]) para 24 bits (0..255)
+    // PASSO 4: converte o resultado (em [0,1]) para 24 bits
     for (int i = 0; i < tam; i++)
     {
         out->pixels[i].r = converte8bits(in->pixels[i].r);
