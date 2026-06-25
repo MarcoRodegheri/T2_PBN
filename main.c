@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h> // Para usar strings
-#include <math.h>   // powf()
+#include <math.h>
 #include <time.h>
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -63,17 +63,15 @@ int main(int argc, char *argv[])
     {
         printf("hdrvis [imagem .hdf] [exposicao] [gama] [reinhard|aces]\n");
         printf("  imagem .hdf : arquivo da imagem HDR no formato HDF\n");
-        printf("  exposicao   : fator de exposicao em stops (ex: 0, 1.5, -2)\n");
+        printf("  exposicao   : fator de exposicao (ex: 0, 1.5, -2)\n");
         printf("  gama        : valor da correcao gama (ex: 2.2)\n");
         printf("  reinhard|aces : algoritmo de tone mapping desejado\n");
         exit(1);
     }
 
-    // Lê o fator de exposição (em stops) e o valor de gama informados
     float exposicao = (float)atof(argv[2]);
     float gama = (float)atof(argv[3]);
 
-    // Seleciona, via ponteiro de função, o algoritmo de tone mapping
     FuncToneMap toneMap;
     if (strcmp(argv[4], "reinhard") == 0)
     {
@@ -136,11 +134,7 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-// Ordem do pipeline:
-//   1. Aplicar o fator de exposição
-//   2. Aplicar o algoritmo de tone mapping (Reinhard ou ACES)
-//   3. Aplicar a correção gama
-//   4. Converter o resultado para 24 bits
+// Executa todo o pipeline de processamento, grava saída em out->pixels
 void process(ImgRGBF *in, ImgRGB *out, float exposicao, float gama, FuncToneMap toneMap)
 {
     int tam = in->width * in->height;
@@ -151,7 +145,7 @@ void process(ImgRGBF *in, ImgRGB *out, float exposicao, float gama, FuncToneMap 
     FuncExposicao funcExposicao = aplicaExposicao;
     FuncGama funcGama = aplicaGama;
 
-    // PASSO 1: aplica o fator de exposição a cada componente de cada pixel
+    // Aplica exposicao
     for (int i = 0; i < tam; i++)
     {
         in->pixels[i].r = funcExposicao(in->pixels[i].r, exposicao);
@@ -159,15 +153,7 @@ void process(ImgRGBF *in, ImgRGB *out, float exposicao, float gama, FuncToneMap 
         in->pixels[i].b = funcExposicao(in->pixels[i].b, exposicao);
     }
 
-    // PASSO 2: tone mapping
-    //
-    // O algoritmo de Reinhard precisa do parâmetro Lwhite, calculado a
-    // partir da luminância de todos os pixels da imagem (já após a
-    // exposição). Lwhite é a maior luminância encontrada na imagem, ou
-    // seja, o valor que será mapeado exatamente para o branco puro (1.0);
-    // qualquer luminância igual ou superior a ela é levada para 1.0.
-    // O algoritmo ACES não utiliza esse parâmetro (ele é simplesmente
-    // ignorado pela função correspondente).
+    // Tone mapping
     float Lwhite = 0.0f;
 
     if (toneMap == toneMapReinhard)
@@ -181,7 +167,7 @@ void process(ImgRGBF *in, ImgRGB *out, float exposicao, float gama, FuncToneMap 
             }
         }
 
-        // Evita divisão por zero caso a imagem seja totalmente preta
+        // Evita div/0
         if (Lwhite <= 0.0f)
         {
             Lwhite = 1.0f;
@@ -197,7 +183,7 @@ void process(ImgRGBF *in, ImgRGB *out, float exposicao, float gama, FuncToneMap 
         in->pixels[i].b = toneMap(in->pixels[i].b, Lwhite);
     }
 
-    // PASSO 3: aplica a correção gama
+    // Aplica gama
     for (int i = 0; i < tam; i++)
     {
         in->pixels[i].r = funcGama(in->pixels[i].r, gama);
@@ -205,7 +191,7 @@ void process(ImgRGBF *in, ImgRGB *out, float exposicao, float gama, FuncToneMap 
         in->pixels[i].b = funcGama(in->pixels[i].b, gama);
     }
 
-    // PASSO 4: converte o resultado (em [0,1]) para 24 bits
+    // Converte pra 24 bits
     for (int i = 0; i < tam; i++)
     {
         out->pixels[i].r = converte8bits(in->pixels[i].r);
@@ -216,16 +202,10 @@ void process(ImgRGBF *in, ImgRGB *out, float exposicao, float gama, FuncToneMap 
 
 // Esta função deverá ser utilizada para apenas ler o conteúdo do header
 // e extrair a largura e altura da imagem
-//
-// Formato do header (arquivo .hdf):
-//   - 3 bytes  : caracteres "HDF" (identificador do formato)
-//   - 4 bytes  : largura da imagem (inteiro sem sinal)
-//   - 4 bytes  : altura da imagem (inteiro sem sinal)
 void carregaHeader(FILE *fp, ImgRGBF *img)
 {
     char magic[4] = {0};
 
-    // Lê os 3 caracteres "HDF" que identificam o formato
     if (fread(magic, sizeof(char), 3, fp) != 3)
     {
         printf("Erro: falha ao ler o cabecalho do arquivo\n");
@@ -240,7 +220,6 @@ void carregaHeader(FILE *fp, ImgRGBF *img)
 
     unsigned int largura, altura;
 
-    // Lê largura e altura, ambos inteiros sem sinal de 4 bytes
     if (fread(&largura, sizeof(unsigned int), 1, fp) != 1 ||
         fread(&altura, sizeof(unsigned int), 1, fp) != 1)
     {
@@ -256,32 +235,22 @@ void carregaHeader(FILE *fp, ImgRGBF *img)
 // da imagem (após ler o header e extrair a largura e altura corretamente)
 // (não esqueça de alocar memória para os bytes no formato RGBE (unsigned char)
 // e também para os bytes no formato RGBF (float) )
-//
-// Cada pixel é armazenado em 4 bytes no formato RGBE: R, G, B (mantissas)
-// e E (expoente). Para converter para float, calcula-se o fator
-//   f = 2 ^ (E - 136)
-// (136 = 128 + 8, conforme a codificação RGBE) e então:
-//   R_float = R * f ,  G_float = G * f ,  B_float = B * f
 void carregaImagem(FILE *fp, ImgRGBF *img)
 {
     int tam = img->width * img->height;
 
-    // Aloca memória para os pixels originais, no formato RGBE
     RGBEPixel *pixelsRGBE = malloc(tam * sizeof(RGBEPixel));
 
-    // Lê todos os pixels (4 bytes cada) de uma só vez
     if (fread(pixelsRGBE, sizeof(RGBEPixel), tam, fp) != (size_t)tam)
     {
         printf("Erro: falha ao ler os pixels da imagem\n");
         exit(1);
     }
 
-    // Aloca memória para a imagem convertida em ponto flutuante (RGBF)
     img->pixels = malloc(tam * sizeof(RGBFPixel));
 
     for (int i = 0; i < tam; i++)
     {
-        // Fator de conversão calculado a partir do byte de mantissa (E)
         float f = powf(2.0f, (float)(pixelsRGBE[i].e - 136));
 
         img->pixels[i].r = pixelsRGBE[i].r * f;
@@ -292,32 +261,19 @@ void carregaImagem(FILE *fp, ImgRGBF *img)
     free(pixelsRGBE);
 }
 
-// Aplica o fator de exposição (em "stops") a um componente de cor.
-// Um stop corresponde a uma potência de 2: +1 stop dobra a exposição,
-// -2 stops reduz a exposição para 1/4 do valor original.
+// Exposicao
 float aplicaExposicao(float valor, float stops)
 {
     return valor * powf(2.0f, stops);
 }
 
-// Calcula a luminância de um pixel usando os pesos de percepção
-// humana padrão da norma ITU-R BT.709
+// Luminancia
 float calculaLuminancia(RGBFPixel p)
 {
     return 0.2126f * p.r + 0.7152f * p.g + 0.0722f * p.b;
 }
 
-// Algoritmo de tone mapping "Reinhard Global" (operador modificado,
-// com ponto de branco / "white point").
-//
-// Referência: REINHARD, E. et al. "Photographic Tone Reproduction for
-// Digital Images". ACM Transactions on Graphics, 2002. (operador
-// estendido, que introduz o parâmetro Lwhite para permitir que valores
-// de luminância sejam mapeados para o branco puro)
-//
-//   Ld = Lw * (1 + Lw / Lwhite^2) / (1 + Lw)
-//
-// Todo valor igual ou superior a Lwhite é levado diretamente para 1.0
+// Reinhard
 float toneMapReinhard(float valor, float Lwhite)
 {
     if (valor >= Lwhite)
@@ -328,18 +284,10 @@ float toneMapReinhard(float valor, float Lwhite)
     return (valor * (1.0f + valor / (Lwhite * Lwhite))) / (1.0f + valor);
 }
 
-// Algoritmo de tone mapping ACES (Academy Color Encoding System).
-//
-// Primeiro reduz o valor do componente para 60% do original e, em
-// seguida, aplica a curva ACES (aproximação de Narkowicz), garantindo
-// que o resultado fique no intervalo [0, 1].
-//
-// O segundo parâmetro não é utilizado por este algoritmo (existe apenas
-// para que ele possa ser chamado através do mesmo tipo de ponteiro de
-// função usado pelo Reinhard).
+// ACES
 float toneMapACES(float valor, float param)
 {
-    (void)param; // não utilizado pelo ACES
+    (void)param;
 
     valor = valor * 0.6f;
 
@@ -363,7 +311,7 @@ float toneMapACES(float valor, float param)
     return resultado;
 }
 
-// Aplica a correção gama: out = in ^ (1 / gama)
+// Correcao Gama
 float aplicaGama(float valor, float gama)
 {
     if (valor < 0.0f)
@@ -374,8 +322,7 @@ float aplicaGama(float valor, float gama)
     return powf(valor, 1.0f / gama);
 }
 
-// Converte um componente de cor em ponto flutuante (na faixa [0,1])
-// para um valor inteiro de 8 bits (0..255)
+// Float para 8 bits
 unsigned char converte8bits(float valor)
 {
     if (valor < 0.0f)
